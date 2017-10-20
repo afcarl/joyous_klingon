@@ -1,55 +1,41 @@
 data {
-    int<lower=0> N;    // number of samples
-    int<lower=0> D;    // number of dimensions
-    real g[N];         // gradient values
-    // int<lower=0> n[N]; // sampling depth
-    matrix[D, N] x;    // observed microbe abundances
+  int<lower=0> N;    // number of samples
+  int<lower=0> D;    // number of dimensions
+  int<lower=0> r;    // rank of partition matrix
+  matrix[r, D] psi;    // partition matrix for ilr transform
+  real g[N];         // gradient values
+  int x[N, D];       // observed microbe abundances
 }
-
 parameters {
-    real mu[D];             // means for each species distribution
-    real<lower=0> sigma[D]; // variance for each species distribution
-    // parameters required for linear regression on the species means
-    real alpha;
-    real beta0;
-    real beta1;
-    real<lower=0> sigmaG;
+  // parameters required for linear regression on the species means
+  vector[r] beta0;
+  vector[r] beta1;
+  matrix[N, r] x_; // ilr transformed abundances
 }
-
 transformed parameters{
-    matrix[D, N] xmodel;        // microbe abundances
-    matrix[D, N] eta;           // microbe logistic transformed
-    matrix[D, N] m;             // microbe logistic transformed
+  matrix[r, r] sigma; // covariance matrix for linear regression
+  vector[r] sigmaD;
+  for (i in 1:r){
+    sigmaD[i] = 1;
+  }
+  for (i in 1:r){
+    for (j in 1:r){
+      sigma[i, j] = 0;
+    }
+  }
+  sigma = diag_matrix(rep_vector(1.0, r));
 }
 
 model {
-    // setting priors ...
-    beta0 ~ normal(0, 10);
-    beta1 ~ normal(0, 10);
-    sigmaG ~ cauchy(0, 5);
 
-    // fitting the actual model
-
-    // generating the normal distributions for each species
-    for (i in 1:D){
-	sigma[i] ~ cauchy(0, 5);
-	mu[i] ~ normal(beta0 + beta1 * g[i], sigmaG);
-	// choosing a prior for sigma[i]
-
-	// fit normal distribution for each species j
-	for (j in 1:N){
-	  x[i, j] ~ normal(exp( (mu[i]-g[j])^2 / 2 ), 1);
-	}
-    }
-
-    // generating logistic normal via inverse clr
-    //for (j in 1:N){
-    //    eta[:, j] = softmax(x[:, j])
-    //}
-
-    // pull out multinomial samples
-    //for (j in 1:N){
-    //    m[:, j] = multinomial(eta[:, j], n[j])
-    //}
-
+  // setting priors ...
+  for (i in 1:r){
+    beta0[i] ~ normal(0, 20); // super informed prior
+    beta1[i] ~ normal(3, 5); // super informed prior
+  }
+  for (j in 1:N){
+    x_[j] ~ multi_normal(g[j] * beta1 + beta0, sigma);
+    // perform ilr inverse and multinomial sample
+    x[j] ~ multinomial( softmax(to_vector( x_[j]*psi )) );
+  }
 }
